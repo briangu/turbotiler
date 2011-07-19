@@ -3,9 +3,16 @@
  */
 package org.ops5.contest.game;
 
+
+import com.sun.xml.internal.bind.v2.runtime.Coordinator;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Random;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -18,581 +25,437 @@ import org.linkedin.contest.game.api.Pass;
 import org.linkedin.contest.game.api.Board;
 import org.linkedin.contest.game.api.WordPlay;
 import org.linkedin.contest.game.player.Player;
+import sun.security.util.Password;
 
-/**
- * TBD: Add documentation for this class.
- */
+
 public class TurboTiler implements Player
 {
-	public enum Direction
-	{
-		NORTH,
-		EAST,
-		SOUTH,
-		WEST,
-		UNKNOWN
-	}
+  private enum Orientation
+  {
+    Vertical,
+    Horizontal
+  }
 
-	private Random _random;
-    private Pattern _allVowels;
-    private Pattern _allConsonants;
-    private Dictionary _dictionary;
-    private int _discards;
+  private static final Character MATCH_CHAR = '.';
 
-    public void init()
+  private Random _random;
+  private Pattern _allVowels;
+  private Pattern _allConsonants;
+  private Dictionary _dictionary;
+
+  private class ScoredMove
+  {
+    public Move Move;
+    public Double Score;
+    public ScoredMove(Move move, double score)
     {
-        _random = new Random(System.currentTimeMillis());
-        _allVowels = Pattern.compile("[AEIOU]+");
-        _allConsonants = Pattern.compile("[^AEIOU]+");
-        _dictionary = Dictionary.getInstance();
+      Move = move;
+      Score = score;
+    }
+  }
+
+  public void init()
+  {
+    _random = new Random(System.currentTimeMillis());
+    _allVowels = Pattern.compile("[AEIOU]+");
+    _allConsonants = Pattern.compile("[^AEIOU]+");
+    _dictionary = Dictionary.getInstance();
+  }
+
+  public Move move(Board board, List<Letter> letters, int myScore, int opponentScore)
+  {
+    System.out.println("Letters: " + letters.toString());
+
+    List<ScoredMove> moves = new ArrayList<ScoredMove>();
+
+    List<WordPlay> played = board.getPlayedWords();
+
+    moves.addAll(
+        played.isEmpty()
+            ? findAllMoves(board, letters, board.getStart(), Orientation.Horizontal)
+            : findAllMoves(board, letters));
+    moves.addAll(addDefaultMoves(letters));
+
+    Move result = selectWinningMove(moves);
+
+    System.out.println("letters: " + letters.toString());
+    System.out.println("winning Move: " + result);
+    if (result instanceof WordPlay)
+    {
+      System.out.println("board start: " + board.getStart());
+      WordPlay wordPlay = (WordPlay)result;
+      for (int i = 0; i < wordPlay.getLetters().size(); i++)
+      {
+        System.out.println(wordPlay.getCoordinate(i));
+      }
     }
 
-    public Move move(Board board, List<Letter> letters, int myScore, int opponentScore)
-    {
-      Move result = allVowels(letters);
-      if (result != null)
-      {
-        _discards++;
-        return result;
-      }
-      result = allConsonants(letters);
-      if (result != null)
-      {
-        _discards++;
-        return result;
-      }
+    return result;
+  }
 
-      List<WordPlay> played = board.getPlayedWords();
-      if (played.isEmpty())
+  private Move selectWinningMove(List<ScoredMove> moves)
+  {
+    if (moves.size() == 0)
+    {
+      System.out.println("no moves to choose winner from!");
+      return Pass.INSTANCE;
+    }
+
+    System.out.println("have # moves: " + moves.size());
+
+    Collections.sort(moves, new Comparator<Object>()
+    {
+      public int compare(Object o, Object o1)
       {
-        // We are the first player, play at the start spot+
-        result = findWord(letters, null, board.getStart(), Direction.EAST);
+        // descending
+        return ((ScoredMove) o1).Score.compareTo(((ScoredMove) o).Score);
       }
-      else
+    });
+
+    for (ScoredMove move : moves)
+    {
+      System.out.println("final move: " + move.Move + " score: " + move.Score);
+    }
+
+    Move result = moves.get(0).Move;
+
+    return result;
+  }
+
+  private List<ScoredMove> addDefaultMoves(List<Letter> letters)
+  {
+    Move result;
+
+    List<ScoredMove> moves = new ArrayList<ScoredMove>();
+
+    result = allVowels(letters);
+    if (result != null)
+    {
+      moves.add(new ScoredMove(result, 1.0));
+    }
+
+    result = allConsonants(letters);
+    if (result != null)
+    {
+      moves.add(new ScoredMove(result, 0.5));
+    }
+
+    // Randomly pick either 3 or 4 as the number of tiles to trade in.
+    int tradeSize = 3 + _random.nextInt(2);
+    List<Letter> discards = new ArrayList<Letter>();
+    for (int counter = 0; counter < tradeSize; counter++)
+    {
+      Letter discard = letters.get(counter);
+      discards.add(discard);
+      moves.add(new ScoredMove(new Discard(discards), 0.25));
+    }
+
+    moves.add(new ScoredMove(Pass.INSTANCE, 0));
+
+    return moves;
+  }
+
+  private Move allVowels(List<Letter> letters)
+  {
+    // Demonstrate the PASS and DISCARD options
+    // If we have nothing but vowels AND there are letters left in the deck trade some in.
+    // If we have nothing but vowels AND there are no letters left in the deck pass.
+    // Otherwise return null to indicate do something else.
+    return patternCheckDiscard(letters, _allVowels);
+  }
+
+  private Move allConsonants(List<Letter> letters)
+  {
+    return patternCheckDiscard(letters, _allConsonants);
+  }
+
+  private Move patternCheckDiscard(List<Letter> letters, Pattern pattern)
+  {
+    StringBuffer letterBuffer = new StringBuffer();
+    for (Letter letter : letters)
+    {
+      letterBuffer.append(letter);
+    }
+
+    Matcher matcher = pattern.matcher(letterBuffer.toString());
+    if (!matcher.matches())
+    {
+      return null;
+    }
+    if (letters.size() < 6)
+    {
+      return Pass.INSTANCE;
+    }
+    // Randomly pick either 3 or 4 as the number of tiles to trade in.
+    int tradeSize = 3 + _random.nextInt(2);
+    List<Letter> discards = new ArrayList<Letter>();
+    for (int counter = 0; counter < tradeSize; counter++)
+    {
+      Letter discard = letters.get(counter);
+      discards.add(discard);
+    }
+    return new Discard(discards);
+  }
+
+  private List<ScoredMove> findAllMoves(Board board, List<Letter> letters)
+  {
+    List<ScoredMove> moves = new ArrayList<ScoredMove>();
+
+    List<WordPlay> played = board.getPlayedWords();
+    for (WordPlay word : played)
+    {
+      for (int counter = 0; counter < word.getLetterCount(); counter++)
       {
-        // We are on a subsequent play so find somewhere to play.
-        boolean found = false;
-        Move attempt = null;
-        for (WordPlay word : played)
+        List<ScoredMove> allMoves;
+
+        Coordinate coord = word.getCoordinate(counter);
+
+        allMoves = findAllMoves(board, letters, coord, Orientation.Vertical);
+        moves.addAll(allMoves);
+
+        allMoves = findAllMoves(board, letters, coord, Orientation.Horizontal);
+        moves.addAll(allMoves);
+      }
+    }
+
+    return moves;
+  }
+
+  private List<ScoredMove> findAllMoves(Board board, List<Letter> letters, Coordinate coord, Orientation orientation)
+  {
+    List<ScoredMove> moves = new ArrayList<ScoredMove>();
+
+    // move a sliding selection window over the specified coordinate
+    for (int windowSize = 1; windowSize <= letters.size(); windowSize++)
+    {
+      moves.addAll(findAllMovesInWindow(board, letters, coord, orientation, windowSize, -1));
+      moves.addAll(findAllMovesInWindow(board, letters, coord, orientation, windowSize, 1));
+    }
+
+    return moves;
+  }
+
+  private List<ScoredMove> findAllMovesInWindow(Board board, List<Letter> letters, Coordinate coord, Orientation orientation, int windowSize, int side)
+  {
+    List<ScoredMove> moves = new ArrayList<ScoredMove>();
+
+    Selection selection = createSelect(board, coord, orientation, windowSize, side);
+    if (selection == null) return moves;
+
+    // todo: compute neighborhood (strategy) score for query
+
+    List<String> words = executeQuery(_dictionary, selection, letters);
+
+    for (String word : words)
+    {
+      WordPlay wordPlay = createWordPlayFromQuery(board, selection, orientation, word);
+      System.out.println("WordPlay: " + wordPlay.toString());
+      if (board.getPlayedWords().size() == 0 || (board.getPlayedWords().size() > 0 && board.checkWordPlay(wordPlay)))
+      {
+        System.out.println("valid play: " + wordPlay);
+        int score = board.computeScore(wordPlay);
+        moves.add(new ScoredMove((Move)wordPlay, (double)score));
+      }
+    }
+
+    return moves;
+  }
+
+  public class Selection
+  {
+    public List<Coordinate> Coords;
+    public List<Character> Letters;
+    public String Query;
+    public Selection(List<Coordinate> coords, List<Character> letters, String query)
+    {
+      Coords = coords;
+      Letters = letters;
+      Query = query;
+    }
+  }
+
+  private Selection createSelect(Board board, Coordinate coord, Orientation orientation, int windowSize, int side)
+  {
+    List<Coordinate> coords = new ArrayList<Coordinate>();
+    List<Character> letters = new ArrayList<Character>();
+    StringBuilder sb = new StringBuilder();
+
+    System.out.println("orientation: " + orientation + " windowSize: " + windowSize + " side: " + side);
+
+    if (orientation == Orientation.Vertical)
+    {
+      Coordinate curCoord = coord;
+
+      while(curCoord != null)
+      {
+        if (curCoord.getNorth() == null)
         {
-          for (int counter = 0; counter < word.getLetterCount(); counter++)
+          break;
+        }
+        if (board.getLetter(curCoord) == null)
+        {
+          if (side > 0 || windowSize == 0)
           {
-            // Check if this is a reasonable place to play.
-            Coordinate coord = word.getCoordinate(counter);
-            if (checkNorth(board, coord, 2))
-            {
-              Letter boardLetter = board.getLetter(coord);
-              attempt = findWord(letters, boardLetter, coord, Direction.NORTH);
-              if (attempt instanceof WordPlay && board.checkWordPlay((WordPlay) attempt))
-              {
-                found = true;
-                break;
-              }
-            }
-            if (checkSouth(board, coord, 2))
-            {
-              Letter boardLetter = board.getLetter(coord);
-              attempt = findWord(letters, boardLetter, coord, Direction.SOUTH);
-              if (attempt instanceof WordPlay && board.checkWordPlay((WordPlay) attempt))
-              {
-                found = true;
-                break;
-              }
-            }
-            if (checkEast(board, coord, 2))
-            {
-              Letter boardLetter = board.getLetter(coord);
-              attempt = findWord(letters, boardLetter, coord, Direction.EAST);
-              if (attempt instanceof WordPlay && board.checkWordPlay((WordPlay) attempt))
-              {
-                found = true;
-                break;
-              }
-            }
-            if (checkWest(board, coord, 2))
-            {
-              Letter boardLetter = board.getLetter(coord);
-              attempt = findWord(letters, boardLetter, coord, Direction.WEST);
-              if (attempt instanceof WordPlay && board.checkWordPlay((WordPlay) attempt))
-              {
-                found = true;
-                break;
-              }
-            }
-          }
-          if (found)
-          {
-            _discards = 0;
-            result = attempt;
+            curCoord = curCoord.getSouth();
             break;
           }
+          windowSize--;
         }
-        if (!found)
-        {
-          if (result == null)
-          {
-            result = Pass.INSTANCE;
-          }
-          if (result instanceof Pass && letters.size() == 7)
-          {
-            // Throw them all and try again
-            if (_discards > 5)
-            {
-              // Something is wrong just pass
-            }
-            else
-            {
-              _discards++;
-              result = new Discard(letters);
-            }
-          }
-          else if (result instanceof Pass)
-          {
-            System.out.println("Could not find anything to play and no point discarding.");
-          }
-        }
+
+        curCoord = curCoord.getNorth();
       }
-      return result;
-	}
 
-    private Move allVowels(List<Letter> letters)
-    {
-        // Demonstrate the PASS and DISCARD options
-        // If we have nothing but vowels AND there are letters left in the deck trade some in.
-        // If we have nothing but vowels AND there are no letters left in the deck pass.
-        // Otherwise return null to indicate do something else.
-        return patternCheckDiscard(letters, _allVowels);
-    }
-
-    private Move allConsonants(List<Letter> letters)
-    {
-        return patternCheckDiscard(letters, _allConsonants);
-    }
-
-    private Move patternCheckDiscard(List<Letter> letters, Pattern pattern)
-    {
-        StringBuffer letterBuffer = new StringBuffer();
-        for (Letter letter : letters)
-        {
-            letterBuffer.append(letter);
-        }
-
-        Matcher matcher = pattern.matcher(letterBuffer.toString());
-        if (!matcher.matches())
-        {
-            return null;
-        }
-        if (letters.size() < 7)
-        {
-            return Pass.INSTANCE;
-        }
-        // Randomly pick either 3 or 4 as the number of tiles to trade in.
-        int tradeSize = 3 + _random.nextInt(2);
-        List<Letter> discards = new ArrayList<Letter>();
-        for (int counter = 0; counter < tradeSize; counter++)
-        {
-            Letter discard = letters.get(counter);
-            discards.add(discard);
-        }
-        return new Discard(discards);
-    }
-
-    private Move findWord(List<Letter> letters, Letter boardLetter, Coordinate coord, Direction direction)
-    {
-      // The boardLetter must be part of the word IFF its not null
-      // If we have less than 3 letters we cannot make a word.
-      int size = letters.size() + (boardLetter != null ? 1 : 0);
-      if (size < 3)
+      while(curCoord != null && curCoord.getYCoord() < coord.getYCoord())
       {
-        return Pass.INSTANCE;
+        coords.add(curCoord);
+        Letter letter = board.getLetter(curCoord);
+        Character character = letter == null ? MATCH_CHAR : letter.getLetter();
+        sb.append(character);
+        letters.add(character);
+        curCoord = curCoord.getSouth();
       }
-      String test = null;
-      for (int indexSize = size - 1 ; indexSize >= 3; indexSize--)
-      {
-        // Make sure the word fits before we waste time
-        switch (direction)
-        {
-        case NORTH:
-          if (coord.getNorth(indexSize) == null)
-          {
-            continue;
-          }
-          break;
-        case SOUTH:
-          if (coord.getSouth(indexSize) == null)
-          {
-            continue;
-          }
-          break;
-        case EAST:
-          if (coord.getEast(indexSize) == null)
-          {
-            continue;
-          }
-          break;
-        case WEST:
-          if (coord.getWest(indexSize) == null)
-          {
-            continue;
-          }
-          break;
-        }
 
-        // Trying to find a word of size counter
-        int[] testIndices = new int[indexSize];
-        for (int counter = 0; counter < indexSize; counter++)
+      while(curCoord != null)
+      {
+        if (board.getLetter(curCoord) == null)
         {
-          if (direction == Direction.NORTH || direction == Direction.WEST)
+          if (side < 0 || windowSize == 0)
           {
-            if (counter >= indexSize - 1)
-            {
-              testIndices[counter] = 0;
-            }
-            else
-            {
-              testIndices[counter] = counter + 1;
-            }
-          }
-          else
-          {
-            testIndices[counter] = counter;
-          }
-        }
-        test = getTestWordFromIndices(testIndices, letters, boardLetter);
-        while (!_dictionary.checkWord(test))
-        {
-          if (!findNextIndices(testIndices, size, direction, boardLetter != null))
-          {
-            test = null;
             break;
           }
-          if (direction == Direction.SOUTH || direction == Direction.EAST)
-          {
-            if (testIndices[0] > 0)
-            {
-              // Dumb client AI only looks for words STARTING with the board letter.
-              test = null;
-              break;
-            }
-          }
-          else
-          {
-            if (testIndices[indexSize - 1] > 0)
-            {
-              test = null;
-              continue;
-            }
-            if (testIndices[0] > size - 1)
-            {
-              test = null;
-              break;
-            }
-          }
-          test = getTestWordFromIndices(testIndices, letters, boardLetter);
+          windowSize--;
         }
-        if (test != null)
+
+        coords.add(curCoord);
+        Letter letter = board.getLetter(curCoord);
+        Character character = letter == null ? MATCH_CHAR : letter.getLetter();
+        sb.append(character);
+        letters.add(character);
+        curCoord = curCoord.getSouth();
+      }
+    }
+    else
+    {
+      Coordinate curCoord = coord;
+
+      while(curCoord != null)
+      {
+        if (curCoord.getWest() == null)
         {
           break;
         }
-        else
+        if (board.getLetter(curCoord) == null)
         {
-          // System.out.println("Could not find a word of length " + indexSize);
+          if (side > 0 || windowSize == 0)
+          {
+            curCoord = curCoord.getEast();
+            break;
+          }
+          windowSize--;
         }
+
+        curCoord = curCoord.getWest();
       }
-      if (test == null)
+
+      while(curCoord != null && curCoord.getXCoord() < coord.getXCoord())
       {
-        // We did not find anything; We're going to pass.
-        return Pass.INSTANCE;
+        coords.add(curCoord);
+        Letter letter = board.getLetter(curCoord);
+        Character character = letter == null ? MATCH_CHAR : letter.getLetter();
+        sb.append(character);
+        letters.add(character);
+        curCoord = curCoord.getEast();
       }
-      WordPlay result = new WordPlay();
-      setLettersInWordPlay(result, boardLetter, coord, test, direction);
-      return result;
+
+      while(curCoord != null)
+      {
+        if (board.getLetter(curCoord) == null)
+        {
+          if (side < 0 || windowSize == 0)
+          {
+            break;
+          }
+          windowSize--;
+        }
+
+        coords.add(curCoord);
+        Letter letter = board.getLetter(curCoord);
+        Character character = letter == null ? MATCH_CHAR : letter.getLetter();
+        sb.append(character);
+        letters.add(character);
+        curCoord = curCoord.getEast();
+      }
     }
 
-    private void setLettersInWordPlay(WordPlay move, Letter boardLetter, Coordinate coord, String word, Direction direction)
+    return new Selection(coords, letters, sb.toString());
+  }
+
+  private List<String> executeQuery(Dictionary dictionary, Selection selection, List<Letter> letters)
+  {
+    List<String> words = new ArrayList<String>();
+
+    Set<String> dict = dictionary.getWords();
+
+    // constrain word to only held letters and board letters
+    List<Character> charSet = new ArrayList<Character>();
+    for (int i = 0; i < selection.Letters.size(); i++)
     {
-        if (direction == Direction.NORTH)
-        {
-          coord = coord.getNorth(word.length() - 1);
-        }
-        if (direction == Direction.WEST)
-        {
-          coord = coord.getWest(word.length() - 1);
-        }
-        for (int counter = 0; counter < word.length(); counter++)
-        {
-            if (boardLetter != null)
-            {
-                if (direction == Direction.SOUTH || direction == Direction.EAST)
-                {
-                    // We are in the ascending direction - Board letter comes first
-                    if (counter == 0)
-                    {
-                        continue;
-                    }
-                }
-                else
-                {
-                    // We are in the descending direction - Board letter comes last
-                    if (counter >= word.length()  - 1)
-                    {
-                        continue;
-                    }
-                }
-            }
-            char character = word.charAt(counter);
-            int xoffset = 0;
-            int yoffset = 0;
-            switch (direction)
-            {
-            case NORTH:
-            case SOUTH:
-                yoffset = counter;
-                break;
-            case EAST:
-            case WEST:
-                xoffset = counter;
-                break;
-            }
-            move.setLetter(Letter.getLetter(character), coord.applyOffset(xoffset, yoffset));
-        }
+      if (selection.Letters.get(i) != MATCH_CHAR)
+      {
+        charSet.add(selection.Letters.get(i));
+      }
     }
-
-    private String getTestWordFromIndices(int[] indices, List<Letter> letters, Letter boardLetter)
+    for (Letter letter : letters)
     {
-        StringBuffer testBuffer = new StringBuffer();
-        for (int counter = 0; counter < indices.length; counter++)
-        {
-            if (boardLetter == null)
-            {
-                testBuffer.append(letters.get(indices[counter]));
-            }
-            else if (indices[counter] == 0)
-            {
-                testBuffer.append(boardLetter);
-            }
-            else
-            {
-                testBuffer.append(letters.get(indices[counter] - 1));
-            }
-        }
-        return testBuffer.toString();
+      charSet.add(letter.getLetter());
     }
+    Collections.sort(charSet);
 
-    private boolean findNextIndices(int[] indices, int max, Direction direction, boolean requireZero)
+    Pattern query = Pattern.compile(String.format("^%s$", selection.Query));
+    int queryLength = charSet.size();
+
+    System.out.println("query: " + query);
+
+    for (String candidate : dict)
     {
-        boolean invalidIndices = true;
-        while (invalidIndices)
+      if (candidate.length() != queryLength) continue;
+
+      Matcher matcher = query.matcher(candidate);
+      if (matcher.matches())
+      {
+        System.out.println("match 1: "+candidate);
+        List<Character> foo = new ArrayList<Character>();
+        for (int i = 0; i < candidate.length(); i++)
         {
-            invalidIndices = false;
-            incrementIndices(indices, max);
-            if (direction == Direction.SOUTH || direction == Direction.EAST)
-            {
-                if ((requireZero && indices[0] > 0) || indices[0] >= max - 1)
-                {
-                    // We have tried every combination of words
-                    // For requiresZero we are "stupid" and require it start with the board letter.
-                    return false;
-                }
-                if (requireZero && indices[0] != 0)
-                {
-                    invalidIndices = true;
-                }
-            }
-            else
-            {
-                if (indices[0] >= max - 1)
-                {
-                    return false;
-                }
-                if (requireZero && indices[indices.length - 1] != 0)
-                {
-                    invalidIndices = true;
-                }
-            }
+          foo.add(candidate.charAt(i));
         }
-        return true;
+        Collections.sort(foo);
+        if (charSet.equals(foo))
+        {
+          System.out.println("match 2: "+candidate);
+          words.add(candidate);
+        }
+      }
     }
 
-    private boolean hasDuplicateIndices(int[] indices)
+    return words;
+  }
+
+  private WordPlay createWordPlayFromQuery(Board board, Selection selection, Orientation orientation, String word)
+  {
+    WordPlay wordPlay = new WordPlay();
+
+    for (int i = 0; i < selection.Letters.size(); i++)
     {
-        for (int first = 0; first < indices.length - 1; first++)
-        {
-            for (int second = first + 1; second < indices.length; second++)
-            {
-                if (indices[first] == indices[second])
-                {
-                    return true;
-                }
-            }
-        }
-        return false;
+      if (selection.Letters.get(i) == MATCH_CHAR)
+      {
+        System.out.println("coord: " + selection.Coords.get(i));
+        wordPlay.setLetter(Letter.getLetter(word.charAt(i)), selection.Coords.get(i));
+      }
     }
 
-    private void incrementIndices(int[] indices, int max)
-    {
-        boolean first = true;
-        while (first || hasDuplicateIndices(indices))
-        {
-            int index = indices.length - 1;
-            while (indices[index] >= max - 1)
-            {
-                if (index <= 0)
-                {
-                    break;
-                }
-                indices[index] = 0;
-                index--;
-            }
-            indices[index]++;
-            first = false;
-        }
-    }
+    System.out.println("word: " + word + " query: " + selection.Query + " wordplay: " + wordPlay);
 
-	private boolean checkNorth(Board board, Coordinate coord, int length)
-	{
-	  Coordinate c = coord;
-	  for (int counter = 1; counter <= length; counter++)
-	  {
-	    c = c.getNorth();
-	    if (c == null)
-	    {
-	      return false;
-	    }
-	    if (board.getLetter(c) != null)
-	    {
-	      return false;
-	    }
-	  }
-	  c = coord.getNorthWest();
-	  if (c != null && board.getLetter(c) != null)
-	  {
-	    return false;
-	  }
-      c = coord.getNorthEast();
-	  if (c != null && board.getLetter(c) != null)
-	  {
-	    return false;
-	  }
-	  c = coord.getSouth();
-	  if (c != null && board.getLetter(c) != null)
-	  {
-	    return false;
-	  }
-	  return true;
-	}
-
-	private boolean checkSouth(Board board, Coordinate coord, int length)
-	{
-	  Coordinate c = coord;
-	  for (int counter = 1; counter <= length; counter++)
-	  {
-	    c = c.getSouth();
-	    if (c == null)
-	    {
-	      // Not enough space
-	      return false;
-	    }
-        if (board.getLetter(c) != null)
-        {
-          return false;
-        }
-	  }
-	  
-	  c = coord.getNorthEast();
-	  if (c != null && board.getLetter(c) != null)
-	  {
-	    return false;
-	  }
-
-	  c = coord.getSouthEast();
-      if (c != null && board.getLetter(c) != null)
-	  {
-	    return false;
-	  }
-      
-      c = coord.getNorth();
-      if (c != null && board.getLetter(c) != null)
-      {
-        return false;
-      }
-      
-      return true;
-	}
-
-	private boolean checkEast(Board board, Coordinate coord, int length)
-	{
-	  Coordinate c = coord;
-	  
-	  for (int counter = 1; counter <= length; counter++)
-	  {
-	    c = coord.getEast();
-        if (c == null)
-        {
-          // Not enough space
-          return false;
-        }
-        if (board.getLetter(c) != null)
-        {
-          return false;
-        }
-	  }
-	  
-	  c = coord.getNorthEast();
-      if (c != null && board.getLetter(c) != null)
-      {
-        return false;
-      }
-      
-      c = coord.getSouthEast();
-      if (c != null && board.getLetter(c) != null)
-      {
-        return false;
-      }
-      
-      c = coord.getWest();
-      if (c != null && board.getLetter(c) != null)
-      {
-        return false;
-      }
-      return true;
-	}
-
-	private boolean checkWest(Board board, Coordinate coord, int length)
-	{
-	  Coordinate c = coord;
-	  for (int counter = 1; counter <= length; counter++)
-	  {
-	    c = c.getWest();
-        if (c == null)
-        {
-          // Not enough space
-          return false;
-        }
-        if (board.getLetter(c) != null)
-        {
-          return false;
-        }
-	  }
-	  
-	  c = coord.getNorthWest();
-      if (c != null && board.getLetter(c) != null)
-      {
-        return false;
-      }
-      
-      c = coord.getSouthWest();
-      if (c != null && board.getLetter(c) != null)
-      {
-        return false;
-      }
-      
-      c = coord.getEast();
-      if (c != null && board.getLetter(c) != null)
-      {
-        return false;
-      }
-      return true;
-	}
-
+    return wordPlay;
+  }
 }
