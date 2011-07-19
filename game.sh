@@ -1,0 +1,1 @@
+java -ea -cp lib/GameApi.jar:lib/GameServer.jar:dist/lib/GameSample.jar org.linkedin.contest.game.server.Game -p1 org.linkedin.contest.game.sample.SamplePlayer -p2 org.linkedin.contest.game.sample.SamplePlayer "$@"
