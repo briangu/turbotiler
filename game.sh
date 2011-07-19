@@ -1,1 +1,1 @@
-java -ea -cp lib/GameApi.jar:lib/GameServer.jar:dist/lib/TurboTiler.jar:dist/lib/GameSample.jar org.linkedin.contest.game.server.Game -p1 org.ops5.contest.game.TurboTiler -p2 org.linkedin.contest.game.sample.SamplePlayer "$@"
+java -ea -cp lib/GameApi.jar:lib/GameServer.jar:dist/lib/TurboTiler.jar:dist/lib/GameSample.jar org.linkedin.contest.game.server.Game -p1 org.ops5.contest.game.TurboTiler -p2 org.ops5.contest.game.TurboTiler "$@"

@@ -1,0 +1,13 @@
+<component name="libraryTable">
+  <library name="lib">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/lib/GameApi.jar!/" />
+      <root url="jar://$PROJECT_DIR$/lib/GameServer.jar!/" />
+      <root url="jar://$PROJECT_DIR$/lib/GameSample.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES>
+      <root url="file://$PROJECT_DIR$/lib/game-api/src" />
+    </SOURCES>
+  </library>
+</component>

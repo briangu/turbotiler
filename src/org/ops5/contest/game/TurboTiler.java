@@ -4,13 +4,13 @@
 package org.ops5.contest.game;
 
 
-import com.sun.xml.internal.bind.v2.runtime.Coordinator;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -25,7 +25,6 @@ import org.linkedin.contest.game.api.Pass;
 import org.linkedin.contest.game.api.Board;
 import org.linkedin.contest.game.api.WordPlay;
 import org.linkedin.contest.game.player.Player;
-import sun.security.util.Password;
 
 
 public class TurboTiler implements Player
@@ -42,6 +41,7 @@ public class TurboTiler implements Player
   private Pattern _allVowels;
   private Pattern _allConsonants;
   private Dictionary _dictionary;
+  private Map<Integer, Set<String>> _wordBuckets = null;
 
   private class ScoredMove
   {
@@ -60,11 +60,29 @@ public class TurboTiler implements Player
     _allVowels = Pattern.compile("[AEIOU]+");
     _allConsonants = Pattern.compile("[^AEIOU]+");
     _dictionary = Dictionary.getInstance();
+
+    _wordBuckets = createWordBuckets(_dictionary);
+  }
+
+  private Map<Integer, Set<String>> createWordBuckets(Dictionary dictionary)
+  {
+    Map<Integer, Set<String>> wordBuckets = new HashMap<Integer, Set<String>>();
+
+    for (String word : dictionary.getWords())
+    {
+      if (!wordBuckets.containsKey(word.length()))
+      {
+        wordBuckets.put(word.length(), new HashSet<String>());
+      }
+      wordBuckets.get(word.length()).add(word);
+    }
+
+    return wordBuckets;
   }
 
   public Move move(Board board, List<Letter> letters, int myScore, int opponentScore)
   {
-    System.out.println("Letters: " + letters.toString());
+//    System.out.println("Letters: " + letters.toString());
 
     List<ScoredMove> moves = new ArrayList<ScoredMove>();
 
@@ -101,7 +119,7 @@ public class TurboTiler implements Player
       return Pass.INSTANCE;
     }
 
-    System.out.println("have # moves: " + moves.size());
+//    System.out.println("have # moves: " + moves.size());
 
     Collections.sort(moves, new Comparator<Object>()
     {
@@ -112,10 +130,12 @@ public class TurboTiler implements Player
       }
     });
 
+/*
     for (ScoredMove move : moves)
     {
       System.out.println("final move: " + move.Move + " score: " + move.Score);
     }
+*/
 
     Move result = moves.get(0).Move;
 
@@ -145,6 +165,7 @@ public class TurboTiler implements Player
     List<Letter> discards = new ArrayList<Letter>();
     for (int counter = 0; counter < tradeSize; counter++)
     {
+      if (counter >= letters.size()) break;
       Letter discard = letters.get(counter);
       discards.add(discard);
       moves.add(new ScoredMove(new Discard(discards), 0.25));
@@ -191,6 +212,7 @@ public class TurboTiler implements Player
     List<Letter> discards = new ArrayList<Letter>();
     for (int counter = 0; counter < tradeSize; counter++)
     {
+      if (counter >= letters.size()) break;
       Letter discard = letters.get(counter);
       discards.add(discard);
     }
@@ -249,11 +271,36 @@ public class TurboTiler implements Player
     for (String word : words)
     {
       WordPlay wordPlay = createWordPlayFromQuery(board, selection, orientation, word);
-      System.out.println("WordPlay: " + wordPlay.toString());
+//      System.out.println("WordPlay: " + wordPlay.toString());
       if (board.getPlayedWords().size() == 0 || (board.getPlayedWords().size() > 0 && board.checkWordPlay(wordPlay)))
       {
-        System.out.println("valid play: " + wordPlay);
-        int score = board.computeScore(wordPlay);
+//        System.out.println("valid play: " + wordPlay);
+        int playScore = board.computeScore(wordPlay);
+        double multiplier = 1.0;
+        // A, E, I, N, R and S
+        if (word.contains("A")) multiplier -= 0.05;
+        if (word.contains("E")) multiplier -= 0.05;
+        if (word.contains("I")) multiplier -= 0.05;
+        if (word.contains("N")) multiplier -= 0.05;
+        if (word.contains("R")) multiplier -= 0.02;
+        if (word.contains("S")) multiplier -= 0.05;
+
+        if (word.contains("J")
+              || word.contains("X")
+              || word.contains("K")
+              || word.contains("Q")
+              || word.contains("Z")
+          )
+        {
+          if (playScore < 20) {
+            multiplier -= 0.10;
+          } else {
+            multiplier += 0.3;
+          }
+        }
+
+        if (wordPlay.getLetters().size() == 6) multiplier = 10.0;
+        double score = playScore * multiplier;
         moves.add(new ScoredMove((Move)wordPlay, (double)score));
       }
     }
@@ -280,7 +327,7 @@ public class TurboTiler implements Player
     List<Character> letters = new ArrayList<Character>();
     StringBuilder sb = new StringBuilder();
 
-    System.out.println("orientation: " + orientation + " windowSize: " + windowSize + " side: " + side);
+//    System.out.println("orientation: " + orientation + " windowSize: " + windowSize + " side: " + side);
 
     if (orientation == Orientation.Vertical)
     {
@@ -294,7 +341,11 @@ public class TurboTiler implements Player
         }
         if (board.getLetter(curCoord) == null)
         {
-          if (side > 0 || windowSize == 0)
+          if (side > 0)
+          {
+            break;
+          }
+          if (windowSize == 0)
           {
             curCoord = curCoord.getSouth();
             break;
@@ -346,7 +397,11 @@ public class TurboTiler implements Player
         }
         if (board.getLetter(curCoord) == null)
         {
-          if (side > 0 || windowSize == 0)
+          if (side > 0)
+          {
+            break;
+          }
+          if (windowSize == 0)
           {
             curCoord = curCoord.getEast();
             break;
@@ -394,45 +449,42 @@ public class TurboTiler implements Player
   {
     List<String> words = new ArrayList<String>();
 
-    Set<String> dict = dictionary.getWords();
-
-    // constrain word to only held letters and board letters
-    List<Character> charSet = new ArrayList<Character>();
-    for (int i = 0; i < selection.Letters.size(); i++)
-    {
-      if (selection.Letters.get(i) != MATCH_CHAR)
-      {
-        charSet.add(selection.Letters.get(i));
-      }
-    }
-    for (Letter letter : letters)
-    {
-      charSet.add(letter.getLetter());
-    }
-    Collections.sort(charSet);
-
     Pattern query = Pattern.compile(String.format("^%s$", selection.Query));
-    int queryLength = charSet.size();
+    int queryLength = selection.Query.length();
+    Set<String> dict = _wordBuckets.get(queryLength);
 
-    System.out.println("query: " + query);
+    if (dict == null) return words;
+
+//    System.out.println("query: " + query);
 
     for (String candidate : dict)
     {
-      if (candidate.length() != queryLength) continue;
-
       Matcher matcher = query.matcher(candidate);
       if (matcher.matches())
       {
-        System.out.println("match 1: "+candidate);
-        List<Character> foo = new ArrayList<Character>();
-        for (int i = 0; i < candidate.length(); i++)
+//        System.out.println("match 1: "+candidate);
+
+        List<Letter> letterLIst = new ArrayList<Letter>(letters);
+        boolean valid = true;
+
+        for (int i = 0; i < selection.Letters.size(); i++)
         {
-          foo.add(candidate.charAt(i));
+          if (selection.Letters.get(i) == MATCH_CHAR)
+          {
+            Letter letter = Letter.getLetter(candidate.charAt(i));
+            int idx = letterLIst.indexOf(letter);
+            if (idx < 0)
+            {
+              valid = false;
+              break;
+            }
+            letterLIst.remove(letter);
+          }
         }
-        Collections.sort(foo);
-        if (charSet.equals(foo))
+
+        if (valid)
         {
-          System.out.println("match 2: "+candidate);
+//          System.out.println("match 2: "+candidate);
           words.add(candidate);
         }
       }
@@ -449,12 +501,12 @@ public class TurboTiler implements Player
     {
       if (selection.Letters.get(i) == MATCH_CHAR)
       {
-        System.out.println("coord: " + selection.Coords.get(i));
+//        System.out.println("coord: " + selection.Coords.get(i));
         wordPlay.setLetter(Letter.getLetter(word.charAt(i)), selection.Coords.get(i));
       }
     }
 
-    System.out.println("word: " + word + " query: " + selection.Query + " wordplay: " + wordPlay);
+//    System.out.println("word: " + word + " query: " + selection.Query + " wordplay: " + wordPlay);
 
     return wordPlay;
   }
