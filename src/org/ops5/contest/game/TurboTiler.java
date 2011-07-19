@@ -26,6 +26,9 @@ import org.linkedin.contest.game.api.Board;
 import org.linkedin.contest.game.api.WordPlay;
 import org.linkedin.contest.game.player.Player;
 
+import static org.linkedin.contest.game.api.Board.*;
+import static org.linkedin.contest.game.api.Board.SquareType.*;
+
 
 public class TurboTiler implements Player
 {
@@ -94,7 +97,7 @@ public class TurboTiler implements Player
             : findAllMoves(board, letters));
     moves.addAll(addDefaultMoves(letters));
 
-    Move result = selectWinningMove(moves);
+    Move result = selectWinningMove(board, moves, myScore, opponentScore);
 
     System.out.println("letters: " + letters.toString());
     System.out.println("winning Move: " + result);
@@ -111,7 +114,7 @@ public class TurboTiler implements Player
     return result;
   }
 
-  private Move selectWinningMove(List<ScoredMove> moves)
+  private Move selectWinningMove(Board board, List<ScoredMove> moves, int myScore, int opponentScore)
   {
     if (moves.size() == 0)
     {
@@ -136,10 +139,92 @@ public class TurboTiler implements Player
       System.out.println("final move: " + move.Move + " score: " + move.Score);
     }
 */
+    List<ScoredMove> subset;
 
-    Move result = moves.get(0).Move;
+    System.out.println(myScore);
+
+    subset = moves.subList(0, Math.min(20, moves.size()));
+
+    for (ScoredMove move : subset)
+    {
+      if (!(move.Move instanceof WordPlay)) continue;
+
+      double threat = 1.0;
+
+      WordPlay play = (WordPlay)move.Move;
+
+      double multiplier = 1.0;
+
+      for (int i = 0; i < play.getLetterCount(); i++)
+      {
+        if (play.getLetter(i).equals(Letter.getLetter('A'))) multiplier -= 0.05;
+        if (play.getLetter(i).equals(Letter.getLetter('E'))) multiplier -= 0.05;
+        if (play.getLetter(i).equals(Letter.getLetter('I'))) multiplier -= 0.05;
+        if (play.getLetter(i).equals(Letter.getLetter('N'))) multiplier -= 0.05;
+        if (play.getLetter(i).equals(Letter.getLetter('R'))) multiplier -= 0.05;
+        if (play.getLetter(i).equals(Letter.getLetter('S'))) multiplier -= 0.05;
+
+        if (play.getLetter(i).equals(Letter.getLetter('J'))
+              || play.getLetter(i).equals(Letter.getLetter('X'))
+              || play.getLetter(i).equals(Letter.getLetter('K'))
+              || play.getLetter(i).equals(Letter.getLetter('Q'))
+              || play.getLetter(i).equals(Letter.getLetter('Z'))
+          )
+        {
+          multiplier += 0.3;
+        }
+
+        Coordinate coord = play.getCoordinate(i);
+
+        threat -= getSquareValue(board, coord.getEast());
+        threat -= getSquareValue(board, coord.getEast(1));
+        threat -= getSquareValue(board, coord.getNorth());
+        threat -= getSquareValue(board, coord.getNorth(1));
+        threat -= getSquareValue(board, coord.getSouth());
+        threat -= getSquareValue(board, coord.getSouth(1));
+        threat -= getSquareValue(board, coord.getWest());
+        threat -= getSquareValue(board, coord.getWest(1));
+      }
+
+      System.out.println(move.Score);
+      System.out.println((multiplier + threat));
+      move.Score = (move.Score * 10) * (multiplier + threat);
+      System.out.println(move.Score);
+    }
+
+    Collections.sort(subset, new Comparator<Object>()
+    {
+      public int compare(Object o, Object o1)
+      {
+        // descending
+        return ((ScoredMove) o1).Score.compareTo(((ScoredMove) o).Score);
+      }
+    });
+
+    Move result = subset.get(0).Move;
 
     return result;
+  }
+
+  private double getSquareValue(Board board, Coordinate coordinate)
+  {
+    if (coordinate == null) return 0.0;
+    if (board.getLetter(coordinate) != null) return 0.0;
+    return getSquareValue(board.getSquareType(coordinate));
+  }
+
+  private double getSquareValue(Board.SquareType type)
+  {
+    switch(type)
+    {
+      case START: return 0.0;
+      case PLAIN: return 0.0;
+      case DOUBLE_LETTER: return 0.02;
+      case DOUBLE_WORD: return 0.10;
+      case TRIPLE_LETTER: return 0.08;
+      case TRIPLE_WORD: return 0.30;
+    }
+    return 1.0;
   }
 
   private List<ScoredMove> addDefaultMoves(List<Letter> letters)
@@ -148,75 +233,29 @@ public class TurboTiler implements Player
 
     List<ScoredMove> moves = new ArrayList<ScoredMove>();
 
-    result = allVowels(letters);
-    if (result != null)
-    {
-      moves.add(new ScoredMove(result, 1.0));
-    }
+    Set<Letter> goodChars = new HashSet<Letter>();
 
-    result = allConsonants(letters);
-    if (result != null)
-    {
-      moves.add(new ScoredMove(result, 0.5));
-    }
+    goodChars.add(Letter.getLetter('A'));
+    goodChars.add(Letter.getLetter('E'));
+    goodChars.add(Letter.getLetter('I'));
+    goodChars.add(Letter.getLetter('N'));
+    goodChars.add(Letter.getLetter('R'));
+    goodChars.add(Letter.getLetter('S'));
 
-    // Randomly pick either 3 or 4 as the number of tiles to trade in.
-    int tradeSize = 3 + _random.nextInt(2);
     List<Letter> discards = new ArrayList<Letter>();
-    for (int counter = 0; counter < tradeSize; counter++)
+    for (int i = 0; i < letters.size(); i++)
     {
-      if (counter >= letters.size()) break;
-      Letter discard = letters.get(counter);
-      discards.add(discard);
-      moves.add(new ScoredMove(new Discard(discards), 0.25));
+      if (goodChars.contains(letters.get(i)))
+      {
+        continue;
+      }
+      discards.add(letters.get(i));
     }
+    moves.add(new ScoredMove(new Discard(discards), 0.25));
 
     moves.add(new ScoredMove(Pass.INSTANCE, 0));
 
     return moves;
-  }
-
-  private Move allVowels(List<Letter> letters)
-  {
-    // Demonstrate the PASS and DISCARD options
-    // If we have nothing but vowels AND there are letters left in the deck trade some in.
-    // If we have nothing but vowels AND there are no letters left in the deck pass.
-    // Otherwise return null to indicate do something else.
-    return patternCheckDiscard(letters, _allVowels);
-  }
-
-  private Move allConsonants(List<Letter> letters)
-  {
-    return patternCheckDiscard(letters, _allConsonants);
-  }
-
-  private Move patternCheckDiscard(List<Letter> letters, Pattern pattern)
-  {
-    StringBuffer letterBuffer = new StringBuffer();
-    for (Letter letter : letters)
-    {
-      letterBuffer.append(letter);
-    }
-
-    Matcher matcher = pattern.matcher(letterBuffer.toString());
-    if (!matcher.matches())
-    {
-      return null;
-    }
-    if (letters.size() < 6)
-    {
-      return Pass.INSTANCE;
-    }
-    // Randomly pick either 3 or 4 as the number of tiles to trade in.
-    int tradeSize = 3 + _random.nextInt(2);
-    List<Letter> discards = new ArrayList<Letter>();
-    for (int counter = 0; counter < tradeSize; counter++)
-    {
-      if (counter >= letters.size()) break;
-      Letter discard = letters.get(counter);
-      discards.add(discard);
-    }
-    return new Discard(discards);
   }
 
   private List<ScoredMove> findAllMoves(Board board, List<Letter> letters)
@@ -272,36 +311,12 @@ public class TurboTiler implements Player
     {
       WordPlay wordPlay = createWordPlayFromQuery(board, selection, orientation, word);
 //      System.out.println("WordPlay: " + wordPlay.toString());
-      if (board.getPlayedWords().size() == 0 || (board.getPlayedWords().size() > 0 && board.checkWordPlay(wordPlay)))
+      if (board.getPlayedWords().size() == 0 ||
+            (board.getPlayedWords().size() > 0 && board.checkWordPlay(wordPlay)))
       {
 //        System.out.println("valid play: " + wordPlay);
         int playScore = board.computeScore(wordPlay);
-        double multiplier = 1.0;
-        // A, E, I, N, R and S
-        if (word.contains("A")) multiplier -= 0.05;
-        if (word.contains("E")) multiplier -= 0.05;
-        if (word.contains("I")) multiplier -= 0.05;
-        if (word.contains("N")) multiplier -= 0.05;
-        if (word.contains("R")) multiplier -= 0.02;
-        if (word.contains("S")) multiplier -= 0.05;
-
-        if (word.contains("J")
-              || word.contains("X")
-              || word.contains("K")
-              || word.contains("Q")
-              || word.contains("Z")
-          )
-        {
-          if (playScore < 20) {
-            multiplier -= 0.10;
-          } else {
-            multiplier += 0.3;
-          }
-        }
-
-        if (wordPlay.getLetters().size() == 6) multiplier = 10.0;
-        double score = playScore * multiplier;
-        moves.add(new ScoredMove((Move)wordPlay, (double)score));
+        moves.add(new ScoredMove((Move)wordPlay, (double)playScore));
       }
     }
 
