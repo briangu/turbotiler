@@ -162,26 +162,24 @@ public class TurboTiler implements Player
       System.out.println("final move: " + move.Move + " score: " + move.Score);
     }
 
-/*
     for (ScoredMove move : subset)
     {
       if (!(move.Move instanceof WordPlay)) continue;
 
       System.out.println("final move: " + move.Move + " score: " + move.Score);
 
-      double threat = 0.0;
-      double multiplier = 0.0;
+      double adjust = 0.0;
 
       WordPlay play = (WordPlay)move.Move;
 
       for (int i = 0; i < play.getLetterCount(); i++)
       {
-        if (play.getLetter(i).equals(Letter.getLetter('A'))) multiplier -= 1;
-        if (play.getLetter(i).equals(Letter.getLetter('E'))) multiplier -= 1;
-        if (play.getLetter(i).equals(Letter.getLetter('I'))) multiplier -= 1;
-        if (play.getLetter(i).equals(Letter.getLetter('N'))) multiplier -= 1;
-        if (play.getLetter(i).equals(Letter.getLetter('R'))) multiplier -= 1;
-        if (play.getLetter(i).equals(Letter.getLetter('S'))) multiplier -= 1;
+        if (play.getLetter(i).equals(Letter.getLetter('A'))) adjust -= 5;
+        if (play.getLetter(i).equals(Letter.getLetter('E'))) adjust -= 5;
+        if (play.getLetter(i).equals(Letter.getLetter('I'))) adjust -= 5;
+        if (play.getLetter(i).equals(Letter.getLetter('N'))) adjust -= 5;
+        if (play.getLetter(i).equals(Letter.getLetter('R'))) adjust -= 5;
+        if (play.getLetter(i).equals(Letter.getLetter('S'))) adjust -= 5;
 
         if (play.getLetter(i).equals(Letter.getLetter('J'))
               || play.getLetter(i).equals(Letter.getLetter('X'))
@@ -190,24 +188,26 @@ public class TurboTiler implements Player
               || play.getLetter(i).equals(Letter.getLetter('Z'))
           )
         {
-          multiplier += 1;
+          adjust += 10;
         }
 
         Coordinate coord = play.getCoordinate(i);
 
-        threat -= getSquareValue(board, coord.getEast());
-        threat -= getSquareValue(board, coord.getEast(1));
-        threat -= getSquareValue(board, coord.getNorth());
-        threat -= getSquareValue(board, coord.getNorth(1));
-        threat -= getSquareValue(board, coord.getSouth());
-        threat -= getSquareValue(board, coord.getSouth(1));
-        threat -= getSquareValue(board, coord.getWest());
-        threat -= getSquareValue(board, coord.getWest(1));
+        adjust -= getSquareValue(board, coord.getEast());
+        adjust -= getSquareValue(board, coord.getEast(1));
+        adjust -= getSquareValue(board, coord.getNorth());
+        adjust -= getSquareValue(board, coord.getNorth(1));
+        adjust -= getSquareValue(board, coord.getSouth());
+        adjust -= getSquareValue(board, coord.getSouth(1));
+        adjust -= getSquareValue(board, coord.getWest());
+        adjust -= getSquareValue(board, coord.getWest(1));
       }
 
+      adjust += (7 - play.getLetterCount()) * 10;
+
       System.out.println(move.Score);
-      System.out.println((multiplier + threat));
-      move.Score = (move.Score * 10) * (multiplier + threat);
+      System.out.println(adjust);
+      move.Score = (move.Score * 100) + (adjust);
       System.out.println(move.Score);
     }
 
@@ -219,7 +219,11 @@ public class TurboTiler implements Player
         return ((ScoredMove) o1).Score.compareTo(((ScoredMove) o).Score);
       }
     });
-*/
+
+    for (ScoredMove move : subset)
+    {
+      System.out.println("final move: " + move.Move + " score: " + move.Score);
+    }
 
     ScoredMove result = subset.get(0);
 
