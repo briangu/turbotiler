@@ -41,10 +41,9 @@ public class TurboTiler implements Player
   private static final Character MATCH_CHAR = '.';
 
   private Random _random;
-  private Pattern _allVowels;
-  private Pattern _allConsonants;
   private Dictionary _dictionary;
   private Map<Integer, Set<String>> _wordBuckets = null;
+  private int _discardCount = 0;
 
   private class ScoredMove
   {
@@ -60,10 +59,7 @@ public class TurboTiler implements Player
   public void init()
   {
     _random = new Random(System.currentTimeMillis());
-    _allVowels = Pattern.compile("[AEIOU]+");
-    _allConsonants = Pattern.compile("[^AEIOU]+");
     _dictionary = Dictionary.getInstance();
-
     _wordBuckets = createWordBuckets(_dictionary);
   }
 
@@ -97,29 +93,45 @@ public class TurboTiler implements Player
             : findAllMoves(board, letters));
     moves.addAll(addDefaultMoves(letters));
 
-    Move result = selectWinningMove(board, moves, myScore, opponentScore);
+    ScoredMove result = selectWinningMove(board, moves, myScore, opponentScore);
+
+    if (result.Score < 10)
+    {
+      if (_discardCount > 2)
+      {
+        System.out.println("forced discard");
+        result = new ScoredMove(discardTiles(letters), 1.0);
+        _discardCount = 0;
+      }
+      else
+      {
+        _discardCount++;
+      }
+    } else {
+      _discardCount = 0;
+    }
 
     System.out.println("letters: " + letters.toString());
     System.out.println("winning Move: " + result);
-    if (result instanceof WordPlay)
+    if (result.Move instanceof WordPlay)
     {
       System.out.println("board start: " + board.getStart());
-      WordPlay wordPlay = (WordPlay)result;
+      WordPlay wordPlay = (WordPlay)result.Move;
       for (int i = 0; i < wordPlay.getLetters().size(); i++)
       {
         System.out.println(wordPlay.getCoordinate(i));
       }
     }
 
-    return result;
+    return result.Move;
   }
 
-  private Move selectWinningMove(Board board, List<ScoredMove> moves, int myScore, int opponentScore)
+  private ScoredMove selectWinningMove(Board board, List<ScoredMove> moves, int myScore, int opponentScore)
   {
     if (moves.size() == 0)
     {
       System.out.println("no moves to choose winner from!");
-      return Pass.INSTANCE;
+      return new ScoredMove(Pass.INSTANCE, 1.0);
     }
 
 //    System.out.println("have # moves: " + moves.size());
@@ -143,26 +155,33 @@ public class TurboTiler implements Player
 
     System.out.println(myScore);
 
-    subset = moves.subList(0, Math.min(20, moves.size()));
+    subset = moves.subList(0, Math.min(10, moves.size()));
 
+    for (ScoredMove move : subset)
+    {
+      System.out.println("final move: " + move.Move + " score: " + move.Score);
+    }
+
+/*
     for (ScoredMove move : subset)
     {
       if (!(move.Move instanceof WordPlay)) continue;
 
-      double threat = 1.0;
+      System.out.println("final move: " + move.Move + " score: " + move.Score);
+
+      double threat = 0.0;
+      double multiplier = 0.0;
 
       WordPlay play = (WordPlay)move.Move;
 
-      double multiplier = 1.0;
-
       for (int i = 0; i < play.getLetterCount(); i++)
       {
-        if (play.getLetter(i).equals(Letter.getLetter('A'))) multiplier -= 0.05;
-        if (play.getLetter(i).equals(Letter.getLetter('E'))) multiplier -= 0.05;
-        if (play.getLetter(i).equals(Letter.getLetter('I'))) multiplier -= 0.05;
-        if (play.getLetter(i).equals(Letter.getLetter('N'))) multiplier -= 0.05;
-        if (play.getLetter(i).equals(Letter.getLetter('R'))) multiplier -= 0.05;
-        if (play.getLetter(i).equals(Letter.getLetter('S'))) multiplier -= 0.05;
+        if (play.getLetter(i).equals(Letter.getLetter('A'))) multiplier -= 1;
+        if (play.getLetter(i).equals(Letter.getLetter('E'))) multiplier -= 1;
+        if (play.getLetter(i).equals(Letter.getLetter('I'))) multiplier -= 1;
+        if (play.getLetter(i).equals(Letter.getLetter('N'))) multiplier -= 1;
+        if (play.getLetter(i).equals(Letter.getLetter('R'))) multiplier -= 1;
+        if (play.getLetter(i).equals(Letter.getLetter('S'))) multiplier -= 1;
 
         if (play.getLetter(i).equals(Letter.getLetter('J'))
               || play.getLetter(i).equals(Letter.getLetter('X'))
@@ -171,7 +190,7 @@ public class TurboTiler implements Player
               || play.getLetter(i).equals(Letter.getLetter('Z'))
           )
         {
-          multiplier += 0.3;
+          multiplier += 1;
         }
 
         Coordinate coord = play.getCoordinate(i);
@@ -200,8 +219,9 @@ public class TurboTiler implements Player
         return ((ScoredMove) o1).Score.compareTo(((ScoredMove) o).Score);
       }
     });
+*/
 
-    Move result = subset.get(0).Move;
+    ScoredMove result = subset.get(0);
 
     return result;
   }
@@ -219,10 +239,10 @@ public class TurboTiler implements Player
     {
       case START: return 0.0;
       case PLAIN: return 0.0;
-      case DOUBLE_LETTER: return 0.02;
-      case DOUBLE_WORD: return 0.10;
-      case TRIPLE_LETTER: return 0.08;
-      case TRIPLE_WORD: return 0.30;
+      case DOUBLE_LETTER: return 2;
+      case DOUBLE_WORD: return 4;
+      case TRIPLE_LETTER: return 8;
+      case TRIPLE_WORD: return 12;
     }
     return 1.0;
   }
@@ -233,6 +253,15 @@ public class TurboTiler implements Player
 
     List<ScoredMove> moves = new ArrayList<ScoredMove>();
 
+    moves.add(new ScoredMove(discardTiles(letters), _random.nextDouble()));
+
+    moves.add(new ScoredMove(Pass.INSTANCE, _random.nextDouble()));
+
+    return moves;
+  }
+
+  private Move discardTiles(List<Letter> letters)
+  {
     Set<Letter> goodChars = new HashSet<Letter>();
 
     goodChars.add(Letter.getLetter('A'));
@@ -251,11 +280,8 @@ public class TurboTiler implements Player
       }
       discards.add(letters.get(i));
     }
-    moves.add(new ScoredMove(new Discard(discards), 0.25));
 
-    moves.add(new ScoredMove(Pass.INSTANCE, 0));
-
-    return moves;
+    return new Discard(discards);
   }
 
   private List<ScoredMove> findAllMoves(Board board, List<Letter> letters)
@@ -302,8 +328,6 @@ public class TurboTiler implements Player
 
     Selection selection = createSelect(board, coord, orientation, windowSize, side);
     if (selection == null) return moves;
-
-    // todo: compute neighborhood (strategy) score for query
 
     List<String> words = executeQuery(_dictionary, selection, letters);
 
